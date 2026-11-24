@@ -52,6 +52,20 @@ dependencies {
 
     implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
 
+    // Local persistence (Room, Java uses annotationProcessor)
+    implementation("androidx.room:room-runtime:2.6.1")
+    annotationProcessor("androidx.room:room-compiler:2.6.1")
+
+    // JSON serialization
+    implementation("com.google.code.gson:gson:2.10.1")
+
+    // Encrypted storage for MQTT credentials
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // Lifecycle components (ViewModel + LiveData)
+    implementation("androidx.lifecycle:lifecycle-viewmodel:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-livedata:2.8.7")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(libs.ext.junit)
