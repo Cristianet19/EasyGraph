@@ -38,6 +38,22 @@
             android:maxLines="1"
             android:text="water/node1/" />
 
+        <EditText
+            android:id="@+id/etUser"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Username (optional)"
+            android:inputType="text"
+            android:maxLines="1" />
+
+        <EditText
+            android:id="@+id/etPassword"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Password (optional)"
+            android:inputType="textPassword"
+            android:maxLines="1" />
+
         <Button
             android:id="@+id/btnConnect"
             android:layout_width="match_parent"
