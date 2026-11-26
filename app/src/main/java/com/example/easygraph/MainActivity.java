@@ -3,6 +3,8 @@ package com.example.easygraph;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.os.Handler; // NEW
+import android.os.Looper; // NEW
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
@@ -25,6 +27,7 @@ import com.example.easygraph.util.PermissionHelper;
 
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList; // NEW
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -39,16 +42,51 @@ public class MainActivity extends AppCompatActivity {
     private static final String PREFS = "easygraph_prefs";
     private static final int MAX_LOG_CHARS = 20000;
 
+    // NEW: data older than this is shown as stale. Adjust it to the publish
+    // interval of your ESP32 (a good value is 2-3 times that interval).
+    private static final long STALE_AFTER_MS = 2 * 60 * 1000L;
+    private static final long AGE_REFRESH_MS = 5000L;
+
     private static final int COLOR_OK = Color.parseColor("#2E7D32");
     private static final int COLOR_WARNING = Color.parseColor("#F9A825");
     private static final int COLOR_BAD = Color.parseColor("#C62828");
+
+    /** NEW: value + age views of one card, and when its last data arrived. */
+    private static class CardView {
+        final TextView value;
+        final TextView age;
+        long lastUpdate = 0; // 0 = no data received yet
+
+        CardView(TextView value, TextView age) {
+            this.value = value;
+            this.age = age;
+        }
+
+        void update(String text) {
+            value.setText(text);
+            value.setAlpha(1f);
+            lastUpdate = System.currentTimeMillis();
+            age.setText("just now");
+        }
+
+        void refreshAge(long now, long staleAfterMs) {
+            if (lastUpdate == 0) {
+                age.setText("");
+                return;
+            }
+            long elapsed = now - lastUpdate;
+            boolean stale = elapsed > staleAfterMs;
+            age.setText(formatAge(elapsed) + " ago" + (stale ? " (stale)" : ""));
+            value.setAlpha(stale ? 0.4f : 1f);
+        }
+    }
 
     // Must be created in onCreate(), before the activity is started
     private PermissionHelper permissionHelper;
 
     private MqttRepository mqttRepository;
     private volatile PlainNumberParser parser;
-    private volatile String commandTopic; // NEW
+    private volatile String commandTopic;
 
     private EditText etHost;
     private EditText etPort;
@@ -56,13 +94,24 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvStatus;
     private TextView tvLog;
 
-    // Node 1 (water) value views
-    private TextView tvPh;
-    private TextView tvTds;
-    private TextView tvTurbidity;
-    private TextView tvTemperature;
-    private TextView tvState;
-    private TextView tvHeartbeat;
+    // Node 1 (water) cards
+    private CardView cardPh; // NEW (was TextView)
+    private CardView cardTds;
+    private CardView cardTurbidity;
+    private CardView cardTemperature;
+    private CardView cardState;
+    private CardView cardHeartbeat;
+    private final List<CardView> node1Cards = new ArrayList<>(); // NEW
+
+    // NEW: periodic refresh of the "age" lines
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable ageRefresher = new Runnable() {
+        @Override
+        public void run() {
+            refreshAges();
+            handler.postDelayed(this, AGE_REFRESH_MS);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -107,26 +156,46 @@ public class MainActivity extends AppCompatActivity {
 
         btnConnect.setOnClickListener(v -> connect());
 
-        // NEW: node 1 command buttons
+        // Node 1 command buttons
         findViewById(R.id.btnSample).setOnClickListener(v -> sendCommand("sample"));
         findViewById(R.id.btnAlertOff).setOnClickListener(v -> sendCommand("alert_off"));
     }
 
-    /** Sets the label of a card and returns its value view. */
-    private TextView bindCard(int cardId, String label) {
+    // NEW: the age refresher only runs while the screen is visible
+    @Override
+    protected void onResume() {
+        super.onResume();
+        handler.post(ageRefresher);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        handler.removeCallbacks(ageRefresher);
+    }
+
+    /** Sets the label of a card and returns its views. */
+    private CardView bindCard(int cardId, String label) { // NEW: returns CardView
         View card = findViewById(cardId);
         ((TextView) card.findViewById(R.id.tvLabel)).setText(label);
-        return card.findViewById(R.id.tvValue);
+        return new CardView(card.findViewById(R.id.tvValue), card.findViewById(R.id.tvAge));
     }
 
     private void bindCards() {
         // Node 1: water quality
-        tvPh = bindCard(R.id.cardPh, "pH");
-        tvTds = bindCard(R.id.cardTds, "TDS");
-        tvTurbidity = bindCard(R.id.cardTurbidity, "Turbidity");
-        tvTemperature = bindCard(R.id.cardTemperature, "Temperature");
-        tvState = bindCard(R.id.cardState, "Water state");
-        tvHeartbeat = bindCard(R.id.cardHeartbeat, "Heartbeat");
+        cardPh = bindCard(R.id.cardPh, "pH");
+        cardTds = bindCard(R.id.cardTds, "TDS");
+        cardTurbidity = bindCard(R.id.cardTurbidity, "Turbidity");
+        cardTemperature = bindCard(R.id.cardTemperature, "Temperature");
+        cardState = bindCard(R.id.cardState, "Water state");
+        cardHeartbeat = bindCard(R.id.cardHeartbeat, "Heartbeat");
+
+        node1Cards.add(cardPh);
+        node1Cards.add(cardTds);
+        node1Cards.add(cardTurbidity);
+        node1Cards.add(cardTemperature);
+        node1Cards.add(cardState);
+        node1Cards.add(cardHeartbeat);
 
         // Node 2: MeteoRoad (labels only, values stay "--" until its parser is connected)
         bindCard(R.id.cardN2Temperature, "Temperature");
@@ -136,6 +205,23 @@ public class MainActivity extends AppCompatActivity {
         bindCard(R.id.cardN2Ml, "Rain trend (ML)");
         bindCard(R.id.cardN2Forecast, "Forecast (7 days)");
         bindCard(R.id.cardN2Traffic, "Traffic alerts");
+    }
+
+    /** NEW: updates the age line (and the stale look) of every node 1 card. */
+    private void refreshAges() {
+        long now = System.currentTimeMillis();
+        for (CardView card : node1Cards) {
+            card.refreshAge(now, STALE_AFTER_MS);
+        }
+    }
+
+    /** NEW: 45 s, 3 min, ... */
+    private static String formatAge(long ms) {
+        long seconds = ms / 1000;
+        if (seconds < 60) {
+            return seconds + " s";
+        }
+        return (seconds / 60) + " min";
     }
 
     private void loadSavedSettings() {
@@ -180,7 +266,7 @@ public class MainActivity extends AppCompatActivity {
                 prefix, NodeConfig.ParserProfile.PLAIN_NUMBER);
 
         parser = new PlainNumberParser(config.getId(), prefix);
-        commandTopic = prefix + "cmd"; // NEW
+        commandTopic = prefix + "cmd";
 
         appendLog("Connecting to " + host + ":" + port + " ...");
         mqttRepository.connect(config);
@@ -215,28 +301,28 @@ public class MainActivity extends AppCompatActivity {
             String text = formatReading(r);
             switch (r.getVariable()) {
                 case "ph":
-                    tvPh.setText(text);
+                    cardPh.update(text);
                     break;
                 case "tds":
-                    tvTds.setText(text);
+                    cardTds.update(text);
                     break;
                 case "turbidity":
-                    tvTurbidity.setText(text);
+                    cardTurbidity.update(text);
                     break;
                 case "temperature":
-                    tvTemperature.setText(text);
+                    cardTemperature.update(text);
                     break;
                 default:
                     break;
             }
         } else if (event instanceof NodeEvent.WaterState) {
             String state = ((NodeEvent.WaterState) event).state;
-            tvState.setText(state);
-            tvState.setTextColor(colorForState(state));
+            cardState.update(state);
+            cardState.value.setTextColor(colorForState(state));
         } else if (event instanceof NodeEvent.Heartbeat) {
             NodeEvent.Heartbeat hb = (NodeEvent.Heartbeat) event;
-            tvHeartbeat.setText(hb.detail);
-            tvHeartbeat.setTextColor(hb.ok ? COLOR_OK : COLOR_BAD);
+            cardHeartbeat.update(hb.detail);
+            cardHeartbeat.value.setTextColor(hb.ok ? COLOR_OK : COLOR_BAD);
         }
     }
 
@@ -258,7 +344,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** NEW: publishes a plain-text command to the node (e.g. water/node1/cmd). */
+    /** Publishes a plain-text command to the node (e.g. water/node1/cmd). */
     private void sendCommand(String command) {
         String topic = commandTopic;
         if (topic == null) {
@@ -283,6 +369,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        handler.removeCallbacks(ageRefresher); // NEW
         if (mqttRepository != null) {
             mqttRepository.disconnect();
         }

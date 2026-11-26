@@ -27,6 +27,14 @@
             android:text="--"
             android:textSize="22sp"
             android:textStyle="bold" />
+
+        <!-- Age of the last data, e.g. "5 s ago" or "3 min ago (stale)" -->
+        <TextView
+            android:id="@+id/tvAge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:alpha="0.7"
+            android:textSize="11sp" />
     </LinearLayout>
 
 </com.google.android.material.card.MaterialCardView>
