@@ -121,6 +121,30 @@
                 android:layout_weight="1" />
         </LinearLayout>
 
+        <!-- Node 1 commands -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingTop="8dp">
+
+            <Button
+                android:id="@+id/btnSample"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1"
+                android:text="Measure now" />
+
+            <Button
+                android:id="@+id/btnAlertOff"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:text="Alert off" />
+        </LinearLayout>
+
         <!-- ===== Node 2: MeteoRoad ===== -->
         <TextView
             android:layout_width="match_parent"

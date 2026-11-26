@@ -48,6 +48,7 @@ public class MainActivity extends AppCompatActivity {
 
     private MqttRepository mqttRepository;
     private volatile PlainNumberParser parser;
+    private volatile String commandTopic; // NEW
 
     private EditText etHost;
     private EditText etPort;
@@ -105,6 +106,10 @@ public class MainActivity extends AppCompatActivity {
         });
 
         btnConnect.setOnClickListener(v -> connect());
+
+        // NEW: node 1 command buttons
+        findViewById(R.id.btnSample).setOnClickListener(v -> sendCommand("sample"));
+        findViewById(R.id.btnAlertOff).setOnClickListener(v -> sendCommand("alert_off"));
     }
 
     /** Sets the label of a card and returns its value view. */
@@ -175,6 +180,7 @@ public class MainActivity extends AppCompatActivity {
                 prefix, NodeConfig.ParserProfile.PLAIN_NUMBER);
 
         parser = new PlainNumberParser(config.getId(), prefix);
+        commandTopic = prefix + "cmd"; // NEW
 
         appendLog("Connecting to " + host + ":" + port + " ...");
         mqttRepository.connect(config);
@@ -250,6 +256,17 @@ public class MainActivity extends AppCompatActivity {
             default:
                 return Color.GRAY;
         }
+    }
+
+    /** NEW: publishes a plain-text command to the node (e.g. water/node1/cmd). */
+    private void sendCommand(String command) {
+        String topic = commandTopic;
+        if (topic == null) {
+            Toast.makeText(this, "Connect first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        mqttRepository.publish(topic, command);
+        appendLog("Sent '" + command + "' to " + topic);
     }
 
     private void appendLog(String line) {

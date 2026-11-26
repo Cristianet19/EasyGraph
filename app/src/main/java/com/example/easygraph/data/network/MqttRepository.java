@@ -155,4 +155,29 @@ public class MqttRepository {
         }
         return id;
     }
+    /**
+     * Publishes a text message (used for commands to the ESP32).
+     * QoS 1, not retained: a retained command would be executed again
+     * every time the node reconnects.
+     */
+    public void publish(String topic, String message) {
+        if (client == null || !client.getState().isConnected()) {
+            lastError.postValue("Not connected: cannot publish " + topic);
+            return;
+        }
+        client.publishWith()
+                .topic(topic)
+                .payload(message.getBytes(StandardCharsets.UTF_8))
+                .qos(MqttQos.AT_LEAST_ONCE)
+                .retain(false)
+                .send()
+                .whenComplete((publish, error) -> {
+                    if (error != null) {
+                        Log.e(TAG, "Publish failed: " + topic, error);
+                        lastError.postValue("Publish failed: " + error.getMessage());
+                    } else {
+                        Log.d(TAG, "Published to " + topic + ": " + message);
+                    }
+                });
+    }
 }
